@@ -2,12 +2,13 @@
 
 #include <Windows.h>
 
-#if __has_include(<Zydis/Zydis.h>)
-#include <Zydis/Zydis.h>
-#elif __has_include(<Zydis.h>)
-#include <Zydis.h>
+
+#if __has_include(<bddisasm/bddisasm.h>)
+#include <bddisasm/bddisasm.h>
+#elif __has_include(<bddisasm.h>)
+#include <bddisasm.h>
 #else
-#error "Zydis not found"
+#error "bddisasm not found"
 #endif
 
 #include <safetyhook/allocator.hpp>
@@ -19,11 +20,15 @@
 namespace safetyhook {
 class UnprotectMemory {
 public:
-    UnprotectMemory(uint8_t* address, size_t size) : m_address{address}, m_size{size} {
+    UnprotectMemory(uint8_t* address, size_t size)
+        : m_address{address},
+          m_size{size} {
         VirtualProtect(m_address, m_size, PAGE_EXECUTE_READWRITE, &m_protect);
     }
 
-    ~UnprotectMemory() { VirtualProtect(m_address, m_size, m_protect, &m_protect); }
+    ~UnprotectMemory() {
+        VirtualProtect(m_address, m_size, m_protect, &m_protect);
+    }
 
 private:
     uint8_t* m_address{};
@@ -109,23 +114,16 @@ static void emit_jmp_e9(uint8_t* src, uint8_t* dst, size_t size = sizeof(JmpE9))
     store(src, make_jmp_e9(src, dst));
 }
 
-static bool decode(ZydisDecodedInstruction* ix, uint8_t* ip) {
-    ZydisDecoder decoder{};
-    ZyanStatus status;
-
-#if defined(_M_X64)
-    status = ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
-#elif defined(_M_IX86)
-    status = ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_STACK_WIDTH_32);
+static bool decode(INSTRUX* ix, uint8_t* ip) {
+#ifdef _M_X64
+    constexpr uint8_t defcode = ND_CODE_64;
+    constexpr uint8_t defdata = ND_DATA_64;
 #else
-#error "Unsupported architecture"
+    constexpr uint8_t defcode = ND_CODE_32;
+    constexpr uint8_t defdata = ND_DATA_32;
 #endif
 
-    if (!ZYAN_SUCCESS(status)) {
-        return false;
-    }
-
-    return ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&decoder, nullptr, ip, 15, ix));
+    return ND_SUCCESS(NdDecode(ix, ip, defcode, defdata));
 }
 
 std::expected<InlineHook, InlineHook::Error> InlineHook::create(void* target, void* destination) {
@@ -161,8 +159,8 @@ InlineHook& InlineHook::operator=(InlineHook&& other) noexcept {
         m_trampoline_size = other.m_trampoline_size;
         m_original_bytes = std::move(other.m_original_bytes);
 
-        other.m_target = 0;
-        other.m_destination = 0;
+        other.m_target = nullptr;
+        other.m_destination = nullptr;
         other.m_trampoline_size = 0;
     }
 
@@ -200,31 +198,34 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
     m_trampoline_size = sizeof(TrampolineEpilogueE9);
 
     std::vector<uint8_t*> desired_addresses{m_target};
-    ZydisDecodedInstruction ix{};
+    INSTRUX ix{};
 
-    for (auto ip = m_target; ip < m_target + sizeof(JmpE9); ip += ix.length) {
+    for (auto ip = m_target; ip < m_target + sizeof(JmpE9); ip += ix.Length) {
         if (!decode(&ix, ip)) {
             return std::unexpected{Error::failed_to_decode_instruction(ip)};
         }
 
-        m_trampoline_size += ix.length;
-        m_original_bytes.insert(m_original_bytes.end(), ip, ip + ix.length);
+        m_trampoline_size += ix.Length;
+        m_original_bytes.insert(m_original_bytes.end(), ip, ip + ix.Length);
 
-        const auto is_relative = (ix.attributes & ZYDIS_ATTRIB_IS_RELATIVE) != 0;
+        const auto is_relative = (ix.Operands[0].Type == ND_OP_OFFS) || (ix.Operands[1].Type == ND_OP_OFFS);
 
         if (is_relative) {
-            if (ix.raw.disp.size == 32) {
-                const auto target_address = ip + ix.length + static_cast<int32_t>(ix.raw.disp.value);
+            if (ix.IsRipRelative && ix.HasRelOffs && ix.RelOffsLength == 4) {
+                const auto target_address =
+                    ip + ix.Length + static_cast<int32_t>(ix.RelativeOffset);
                 desired_addresses.emplace_back(target_address);
-            } else if (ix.raw.imm[0].size == 32) {
-                const auto target_address = ip + ix.length + static_cast<int32_t>(ix.raw.imm[0].value.s);
+            } else if (ix.HasDisp && ix.DispLength == 4) {
+                auto target_address = ip + ix.Length + static_cast<int32_t>(ix.Displacement);
                 desired_addresses.emplace_back(target_address);
-            } else if (ix.meta.category == ZYDIS_CATEGORY_COND_BR && ix.meta.branch_type == ZYDIS_BRANCH_TYPE_SHORT) {
-                const auto target_address = ip + ix.length + static_cast<int32_t>(ix.raw.imm[0].value.s);
+            } else if (ix.Category == ND_CAT_COND_BR) {
+                const auto target_address =
+                    ip + ix.Length + static_cast<int32_t>(ix.Operands[0].Info.RelativeOffset.Rel);
                 desired_addresses.emplace_back(target_address);
                 m_trampoline_size += 4; // near conditional branches are 4 bytes larger.
-            } else if (ix.meta.category == ZYDIS_CATEGORY_UNCOND_BR && ix.meta.branch_type == ZYDIS_BRANCH_TYPE_SHORT) {
-                const auto target_address = ip + ix.length + static_cast<int32_t>(ix.raw.imm[0].value.s);
+            } else if (ix.Category == ND_CAT_UNCOND_BR) {
+                const auto target_address =
+                    ip + ix.Length + static_cast<int32_t>(ix.Operands[0].Info.RelativeOffset.Rel);
                 desired_addresses.emplace_back(target_address);
                 m_trampoline_size += 3; // near unconditional branches are 3 bytes larger.
             } else {
@@ -241,54 +242,51 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
 
     m_trampoline = std::move(*trampoline_allocation);
 
-    for (auto ip = m_target, tramp_ip = m_trampoline.data(); ip < m_target + m_original_bytes.size(); ip += ix.length) {
+    for (auto ip = m_target, tramp_ip = m_trampoline.data(); ip < m_target + m_original_bytes.size(); ip += ix.Length) {
         if (!decode(&ix, ip)) {
             m_trampoline.free();
             return std::unexpected{Error::failed_to_decode_instruction(ip)};
         }
 
-        const auto is_relative = (ix.attributes & ZYDIS_ATTRIB_IS_RELATIVE) != 0;
+        const auto is_relative = (ix.Operands[0].Type == ND_OP_OFFS) || (ix.Operands[1].Type == ND_OP_OFFS);
 
-        if (is_relative && ix.raw.disp.size == 32) {
-            std::copy_n(ip, ix.length, tramp_ip);
-            const auto target_address = ip + ix.length + ix.raw.disp.value;
-            const auto new_disp = target_address - (tramp_ip + ix.length);
-            store(tramp_ip + ix.raw.disp.offset, static_cast<int32_t>(new_disp));
-            tramp_ip += ix.length;
-        } else if (is_relative && ix.raw.imm[0].size == 32) {
-            std::copy_n(ip, ix.length, tramp_ip);
-            const auto target_address = ip + ix.length + ix.raw.imm[0].value.s;
-            const auto new_disp = target_address - (tramp_ip + ix.length);
-            store(tramp_ip + ix.raw.imm[0].offset, static_cast<int32_t>(new_disp));
-            tramp_ip += ix.length;
-        } else if (ix.meta.category == ZYDIS_CATEGORY_COND_BR && ix.meta.branch_type == ZYDIS_BRANCH_TYPE_SHORT) {
-            const auto target_address = ip + ix.length + ix.raw.imm[0].value.s;
+        if (is_relative && ix.IsRipRelative && ix.HasDisp && ix.DispLength == 4) {
+            const auto target_address = ip + ix.Length + ix.Displacement;
+            const auto new_disp = target_address - (tramp_ip + ix.Length);
+            store(tramp_ip + ix.DispOffset, static_cast<int32_t>(new_disp));
+            tramp_ip += ix.Length;
+        } else if (is_relative && ix.HasRelOffs && ix.RelOffsLength == 4) {
+            std::copy_n(ip, ix.Length, tramp_ip);
+            const auto target_address = ip + ix.Length + ix.RelativeOffset;
+            const auto new_disp = target_address - (tramp_ip + ix.Length);
+            store(tramp_ip + ix.RelOffsOffset, static_cast<int32_t>(new_disp));
+            tramp_ip += ix.Length;
+        } else if (ix.Category == ND_CAT_COND_BR && ix.Operands[0].Size != 32) {
+            const auto target_address = ip + ix.Length + ix.Operands[0].Info.RelativeOffset.Rel;
             auto new_disp = target_address - (tramp_ip + 6);
 
-            // Handle the case where the target is now in the trampoline.
             if (target_address < m_target + m_original_bytes.size()) {
-                new_disp = static_cast<ptrdiff_t>(ix.raw.imm[0].value.s);
+                new_disp = static_cast<ptrdiff_t>(ix.Operands[0].Info.RelativeOffset.Rel);
             }
 
             *tramp_ip = 0x0F;
-            *(tramp_ip + 1) = 0x10 + ix.opcode;
+            *(tramp_ip + 1) = 0x10 + ix.OpCodeBytes[0];
             store(tramp_ip + 2, static_cast<int32_t>(new_disp));
             tramp_ip += 6;
-        } else if (ix.meta.category == ZYDIS_CATEGORY_UNCOND_BR && ix.meta.branch_type == ZYDIS_BRANCH_TYPE_SHORT) {
-            const auto target_address = ip + ix.length + ix.raw.imm[0].value.s;
+        } else if (ix.Category == ND_CAT_UNCOND_BR && ix.Operands[0].Size != 32) {
+            const auto target_address = ip + ix.Length + ix.Operands[0].Info.RelativeOffset.Rel;
             auto new_disp = target_address - (tramp_ip + 5);
 
-            // Handle the case where the target is now in the trampoline.
             if (target_address < m_target + m_original_bytes.size()) {
-                new_disp = static_cast<ptrdiff_t>(ix.raw.imm[0].value.s);
+                new_disp = static_cast<ptrdiff_t>(ix.Operands[0].Info.RelativeOffset.Rel);
             }
 
             *tramp_ip = 0xE9;
             store(tramp_ip + 1, static_cast<int32_t>(new_disp));
             tramp_ip += 5;
         } else {
-            std::copy_n(ip, ix.length, tramp_ip);
-            tramp_ip += ix.length;
+            std::copy_n(ip, ix.Length, tramp_ip);
+            tramp_ip += ix.Length;
         }
     }
 
@@ -331,9 +329,9 @@ std::expected<void, InlineHook::Error> InlineHook::e9_hook(const std::shared_ptr
 std::expected<void, InlineHook::Error> InlineHook::ff_hook(const std::shared_ptr<Allocator>& allocator) {
     m_original_bytes.clear();
     m_trampoline_size = sizeof(TrampolineEpilogueFF);
-    ZydisDecodedInstruction ix{};
+    INSTRUX ix{};
 
-    for (auto ip = m_target; ip < m_target + sizeof(JmpFF) + sizeof(uintptr_t); ip += ix.length) {
+    for (auto ip = m_target; ip < m_target + sizeof(JmpFF) + sizeof(uintptr_t); ip += ix.Length) {
         if (!decode(&ix, ip)) {
             return std::unexpected{Error::failed_to_decode_instruction(ip)};
         }
@@ -341,12 +339,12 @@ std::expected<void, InlineHook::Error> InlineHook::ff_hook(const std::shared_ptr
         // We can't support any instruction that is IP relative here because
         // ff_hook should only be called if e9_hook failed indicating that
         // we're likely outside the +- 2GB range.
-        if (ix.attributes & ZYDIS_ATTRIB_IS_RELATIVE) {
+        if (ix.IsRipRelative || ix.HasRelOffs) {
             return std::unexpected{Error::ip_relative_instruction_out_of_range(ip)};
         }
 
-        m_original_bytes.insert(m_original_bytes.end(), ip, ip + ix.length);
-        m_trampoline_size += ix.length;
+        m_original_bytes.insert(m_original_bytes.end(), ip, ip + ix.Length);
+        m_trampoline_size += ix.Length;
     }
 
     auto trampoline_allocation = allocator->allocate(m_trampoline_size);

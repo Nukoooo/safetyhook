@@ -28,7 +28,7 @@ endif()
 option(SAFETYHOOK_BUILD_DOCS "" OFF)
 option(SAFETYHOOK_BUILD_TESTS "" OFF)
 option(SAFETYHOOK_AMALGAMATE "" OFF)
-option(SAFETYHOOK_FETCH_ZYDIS "" OFF)
+option(SAFETYHOOK_FETCH_BDDISASM "" OFF)
 
 project(safetyhook)
 
@@ -60,21 +60,19 @@ if(SAFETYHOOK_BUILD_TESTS) # build-tests
 	FetchContent_MakeAvailable(xbyak)
 
 endif()
-if(SAFETYHOOK_FETCH_ZYDIS) # fetch-zydis
-	option(ZYDIS_BUILD_EXAMPLES "" OFF)
-	option(ZYDIS_BUILD_TOOLS "" OFF)
-	option(ZYDIS_BUILD_DOXYGEN "" OFF)
+if(SAFETYHOOK_FETCH_BDDISASM) # fetch-bddisasm
+	option(BDD_INCLUDE_TOOL "" OFF)
 
-	message(STATUS "Fetching Zydis (v4.0.0)...")
-	FetchContent_Declare(Zydis
+	message(STATUS "Fetching bddisasm (727c87ecc44a9035ca01e68a213d8460ee2aecd2)...")
+	FetchContent_Declare(bddisasm
 		GIT_REPOSITORY
-			"https://github.com/zyantific/zydis.git"
+			"https://github.com/bitdefender/bddisasm.git"
 		GIT_TAG
-			v4.0.0
+			727c87ecc44a9035ca01e68a213d8460ee2aecd2
 		GIT_SHALLOW
 			ON
 	)
-	FetchContent_MakeAvailable(Zydis)
+	FetchContent_MakeAvailable(bddisasm)
 
 endif()
 # Packages
@@ -139,7 +137,7 @@ target_include_directories(safetyhook PUBLIC
 )
 
 target_link_libraries(safetyhook PUBLIC
-	Zydis
+	bddisasm::bddisasm
 	ntdll
 )
 

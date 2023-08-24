@@ -6,14 +6,14 @@ name = "safetyhook"
 SAFETYHOOK_BUILD_DOCS = false
 SAFETYHOOK_BUILD_TESTS = false
 SAFETYHOOK_AMALGAMATE = false
-SAFETYHOOK_FETCH_ZYDIS = false
+SAFETYHOOK_FETCH_BDDISASM = false
 
 [conditions]
 build-docs = "SAFETYHOOK_BUILD_DOCS"
 build-tests = "SAFETYHOOK_BUILD_TESTS"
 amalgamate = "SAFETYHOOK_AMALGAMATE"
 build-amalgamate-tests = "SAFETYHOOK_BUILD_TESTS AND SAFETYHOOK_AMALGAMATE"
-fetch-zydis = "SAFETYHOOK_FETCH_ZYDIS"
+fetch-bddisasm = "SAFETYHOOK_FETCH_BDDISASM"
 
 [fetch-content.Catch2]
 condition = "build-tests"
@@ -27,15 +27,13 @@ git = "https://github.com/herumi/xbyak.git"
 tag = "v6.69"
 shallow = true
 
-[fetch-content.Zydis]
-condition = "fetch-zydis"
-git = "https://github.com/zyantific/zydis.git"
-tag = "v4.0.0"
+[fetch-content.bddisasm]
+condition = "fetch-bddisasm"
+git = "https://github.com/bitdefender/bddisasm.git"
+tag = "727c87ecc44a9035ca01e68a213d8460ee2aecd2"
 shallow = true
 cmake-before = """
-option(ZYDIS_BUILD_EXAMPLES "" OFF)
-option(ZYDIS_BUILD_TOOLS "" OFF)
-option(ZYDIS_BUILD_DOXYGEN "" OFF)
+option(BDD_INCLUDE_TOOL "" OFF)
 """
 
 [find-package.Doxygen]
@@ -52,7 +50,7 @@ sources = ["src/*.cpp"]
 include-directories = ["include/"]
 compile-features = ["cxx_std_23"]
 alias = "safetyhook::safetyhook"
-link-libraries = ["Zydis", "ntdll"]
+link-libraries = ["bddisasm::bddisasm", "ntdll"]
 msvc.private-compile-options = ["/permissive-", "/W4", "/w14640"]
 clang.private-compile-options = ["-Wall", "-Wextra", "-Wshadow", "-Wnon-virtual-dtor", "-pedantic"]
 gcc.private-compile-options = ["-Wall", "-Wextra", "-Wshadow", "-Wnon-virtual-dtor", "-pedantic"]
