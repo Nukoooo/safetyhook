@@ -29,6 +29,7 @@ public:
 
     template <typename T> [[nodiscard]] T* original() const { return (T*)m_trampoline; }
 
+
     template <typename RetT = void, typename... Args> auto call(Args... args) {
         std::scoped_lock lock{m_mutex};
 
@@ -59,6 +60,16 @@ public:
         }
     }
 
+    template <typename RetT = void, typename... Args> auto fastcall(Args... args) {
+        std::scoped_lock lock{m_mutex};
+
+        if (m_trampoline != 0) {
+            return ((RetT(__fastcall*)(Args...))m_trampoline)(args...);
+        } else {
+            return RetT();
+        }
+    }
+
     // These functions are unsafe because they don't lock the mutex. Only use these if you don't care about unhook
     // safety or are worried about the performance cost of locking the mutex.
     template <typename RetT = void, typename... Args> auto unsafe_call(Args... args) {
@@ -71,6 +82,10 @@ public:
 
     template <typename RetT = void, typename... Args> auto unsafe_stdcall(Args... args) {
         return ((RetT(__stdcall*)(Args...))m_trampoline)(args...);
+    }
+
+    template <typename RetT = void, typename... Args> auto unsafe_fastcall(Args... args) {
+        return ((RetT(__fastcall*)(Args...))m_trampoline)(args...);
     }
 
 private:
