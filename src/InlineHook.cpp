@@ -157,13 +157,26 @@ void InlineHook::e9_hook() {
         if (ix.HasRelOffs && ix.RelOffsLength != 4) {
             return;
         }
+        const auto is_relative = (ix.Operands[0].Type == ND_OP_OFFS) || (ix.Operands[1].Type == ND_OP_OFFS);
 
-        if (ix.IsRipRelative && ix.HasDisp && ix.DispLength == 4) {
-            auto target_address = ip + ix.Length + (int32_t)ix.Displacement;
-            desired_addresses.emplace_back(target_address);
-        } else if (ix.HasRelOffs && ix.RelOffsLength == 4) {
-            auto target_address = ip + ix.Length + (int32_t)ix.RelativeOffset;
-            desired_addresses.emplace_back(target_address);
+        if (is_relative) {
+            if (ix.HasDisp && ix.DispLength == 4) {
+                auto target_address = ip + ix.Length + (int32_t)ix.Displacement;
+                desired_addresses.emplace_back(target_address);
+            } else if (ix.HasRelOffs && ix.RelOffsLength == 4) {
+                auto target_address = ip + ix.Length + (int32_t)ix.RelativeOffset;
+                desired_addresses.emplace_back(target_address);
+            } else if (ix.Category == ND_CAT_COND_BR) {
+                const auto target_address =
+                    ip + ix.Length + static_cast<int32_t>(ix.Operands[0].Info.RelativeOffset.Rel);
+                desired_addresses.emplace_back(target_address);
+                m_trampoline_size += 4; // near conditional branches are 4 bytes larger.
+            } else if (ix.Category == ND_CAT_UNCOND_BR) {
+                const auto target_address =
+                    ip + ix.Length + static_cast<int32_t>(ix.Operands[0].Info.RelativeOffset.Rel);
+                desired_addresses.emplace_back(target_address);
+                m_trampoline_size += 3; // near unconditional branches are 3 bytes larger.
+            }
         }
 
         m_trampoline_size += ix.Length;
@@ -202,6 +215,29 @@ void InlineHook::e9_hook() {
             auto target_address = m_target + i + ix.Length + (int32_t)ix.RelativeOffset;
             auto new_disp = (int32_t)(target_address - (m_trampoline + i + ix.Length));
             *(uint32_t*)(m_trampoline + i + ix.RelOffsOffset) = new_disp;
+        } else if (ix.Category == ND_CAT_COND_BR && ix.Operands[0].Size != 32) {
+            const auto target_address = ip + ix.Length + ix.Operands[0].Info.RelativeOffset.Rel;
+            auto new_disp = target_address - (tramp_ip + 6);
+
+            if (target_address < m_target + m_original_bytes.size()) {
+                new_disp = static_cast<ptrdiff_t>(ix.Operands[0].Info.RelativeOffset.Rel);
+            }
+
+            *tramp_ip = 0x0F;
+            *(tramp_ip + 1) = 0x10 + ix.OpCodeBytes[0];
+            store(tramp_ip + 2, static_cast<int32_t>(new_disp));
+            m_trampoline += 5;
+        } else if (ix.Category == ND_CAT_UNCOND_BR && ix.Operands[0].Size != 32) {
+            const auto target_address = ip + ix.Length + ix.Operands[0].Info.RelativeOffset.Rel;
+            auto new_disp = target_address - (m_trampoline + 5);
+
+            if (target_address < m_target + m_original_bytes.size()) {
+                new_disp = static_cast<ptrdiff_t>(ix.Operands[0].Info.RelativeOffset.Rel);
+            }
+
+            *reinterpret_cast<uint8_t*>(m_trampoline) = 0xE9;
+            *reinterpret_cast<int32_t*>(m_trampoline + 1) = static_cast<uint32_t>(new_disp);
+            m_trampoline += 5;
         }
 
         i += ix.Length;
