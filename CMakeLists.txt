@@ -29,23 +29,25 @@ option(SAFETYHOOK_BUILD_TESTS "" OFF)
 
 project(safetyhook)
 
-if(CMKR_ROOT_PROJECT AND NOT CMKR_DISABLE_VCPKG)
-	include(FetchContent)
-	message(STATUS "Fetching vcpkg (2022.07.25)...")
-	FetchContent_Declare(vcpkg URL "https://github.com/microsoft/vcpkg/archive/refs/tags/2022.07.25.tar.gz")
-	FetchContent_GetProperties(vcpkg)
-	if(NOT vcpkg_POPULATED)
-		FetchContent_Populate(vcpkg)
-		include("${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake")
-	endif()
-endif()
+include(FetchContent)
 
-# Packages
-find_package(bddisasm)
+option(BDD_INCLUDE_TOOL "" OFF)
+
+message(STATUS "Fetching bddisasm (727c87ecc44a9035ca01e68a213d8460ee2aecd2)...")
+FetchContent_Declare(bddisasm
+	GIT_REPOSITORY
+		"https://github.com/bitdefender/bddisasm.git"
+	GIT_TAG
+		727c87ecc44a9035ca01e68a213d8460ee2aecd2
+	GIT_SHALLOW
+		ON
+)
+FetchContent_MakeAvailable(bddisasm)
 
 # Target: safetyhook
 set(safetyhook_SOURCES
 	"src/Builder.cpp"
+	"src/Easy.cpp"
 	"src/Factory.cpp"
 	"src/InlineHook.cpp"
 	"src/MidHook.cpp"
@@ -53,6 +55,7 @@ set(safetyhook_SOURCES
 	"include/SafetyHook.hpp"
 	"include/safetyhook/Builder.hpp"
 	"include/safetyhook/Context.hpp"
+	"include/safetyhook/Easy.hpp"
 	"include/safetyhook/Factory.hpp"
 	"include/safetyhook/InlineHook.hpp"
 	"include/safetyhook/MidHook.hpp"

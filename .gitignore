@@ -1,5 +1,6 @@
 build
 build32
+build_windows/
 cmake-build*
 .idea
 .vscode

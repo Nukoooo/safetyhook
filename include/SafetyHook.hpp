@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "safetyhook/Easy.hpp"
 #include "safetyhook/Builder.hpp"
 #include "safetyhook/Factory.hpp"
 #include "safetyhook/InlineHook.hpp"

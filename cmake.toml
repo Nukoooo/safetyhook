@@ -8,12 +8,14 @@ SAFETYHOOK_BUILD_TESTS = false
 [conditions]
 build-tests = "SAFETYHOOK_BUILD_TESTS"
 
-[vcpkg]
-version = "2022.07.25"
-packages = ["bddisasm"]
 
-[find-package]
-bddisasm = { required = false }
+[fetch-content.bddisasm]
+git = "https://github.com/bitdefender/bddisasm.git"
+tag = "727c87ecc44a9035ca01e68a213d8460ee2aecd2"
+shallow = true
+cmake-before = """
+option(BDD_INCLUDE_TOOL "" OFF)
+"""
 
 [target.safetyhook]
 type = "static"
