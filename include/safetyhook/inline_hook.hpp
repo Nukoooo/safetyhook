@@ -349,28 +349,15 @@ public:
 private:
     friend class MidHook;
 
-    enum class Type {
-        Unset,
-        E9,
-        FF,
-    };
-
     uint8_t* m_target{};
     uint8_t* m_destination{};
     Allocation m_trampoline{};
     std::vector<uint8_t> m_original_bytes{};
-    uintptr_t m_trampoline_size{};
     std::recursive_mutex m_mutex{};
     bool m_enabled{};
-    Type m_type{Type::Unset};
 
     std::expected<void, Error> setup(
         const std::shared_ptr<Allocator>& allocator, uint8_t* target, uint8_t* destination);
-    std::expected<void, Error> e9_hook(const std::shared_ptr<Allocator>& allocator);
-
-#if SAFETYHOOK_ARCH_X86_64
-    std::expected<void, Error> ff_hook(const std::shared_ptr<Allocator>& allocator);
-#endif
 
     void destroy();
 };
